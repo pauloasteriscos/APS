@@ -1,13 +1,13 @@
-# DailyTalk.pt
-Aluno: Paulo Silva - Nº 2501478  
-Ano letivo: 2025  
-2501478@estudante.uab.pt  
+# DailyTalk.pt <br>
+Aluno: Paulo Silva - Nº 2501478  <br>
+Ano letivo: 2025  <br>
+2501478@estudante.uab.pt  <br>
 
-GIT:
-https://github.com/pauloasteriscos/APS
+GIT:<br>
+https://github.com/pauloasteriscos/APS<br>
 
-URL do serviço ativo:  
-https://aps-68v8.onrender.com
+URL do serviço ativo:  <br>
+https://aps-68v8.onrender.com<br>
 
 ----------------------------------------------------------------------------------------------------------------------------------
 # Unidade Curricular: APS - Arquitetura e Padrões de Software, da Universidade Aberta.
