@@ -35,7 +35,7 @@ O serviço está alojado na plataforma **Render.com**, conforme recomendado nos 
 
 ## Tecnologia utilizada:
 
-**Python 3**
-**Flask** (microframework para implementação dos Web Services)
-**Gunicorn** (servidor WSGI utilizado no Render)
-**Render.com** (Cloud para webservice)
+**Python 3**  
+**Flask** (microframework para implementação dos Web Services)  
+**Gunicorn** (servidor WSGI utilizado no Render)  
+**Render.com** (Cloud para webservice)  
