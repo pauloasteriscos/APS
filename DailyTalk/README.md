@@ -1,7 +1,7 @@
 # DailyTalk.pt
 Aluno: Paulo Silva - Nº 2501478  
-Ano letivo: 2025
-2501478@estudante.uab.pt
+Ano letivo: 2025  
+2501478@estudante.uab.pt  
 
 GIT:
 https://github.com/pauloasteriscos/APS
