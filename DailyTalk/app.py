@@ -1,16 +1,95 @@
 from flask import Flask, request, jsonify, Response
+from abc import ABC, abstractmethod  # Para o padrão Factory Method
 
 app = Flask(__name__)
 
+# ======================================================================
+# PADRÃO DE CRIAÇÃO: FACTORY METHOD
+# ======================================================================
+# Product abstrato: representa uma atividade DailyTalk
+class Activity(ABC):
+    def __init__(self, activity_id: str, base_url: str):
+        self.activity_id = activity_id
+        self.base_url = base_url.rstrip("/")
+
+    @abstractmethod
+    def get_launch_url(self) -> str:
+        """Devolve o URL de lançamento desta atividade."""
+        pass
+
+
+# Concrete Products: diferentes tipos de atividade
+class DialogActivity(Activity):
+    def get_launch_url(self) -> str:
+        # Exemplo de URL para diálogo guiado
+        return f"{self.base_url}/activity/dialog/{self.activity_id}"
+
+
+class QuizActivity(Activity):
+    def get_launch_url(self) -> str:
+        # Exemplo de URL para atividade de escolhas múltiplas
+        return f"{self.base_url}/activity/quiz/{self.activity_id}"
+
+
+class ScenarioActivity(Activity):
+    def get_launch_url(self) -> str:
+        # Exemplo de URL para cenário Erasmus+ genérico
+        return f"{self.base_url}/activity/scenario/{self.activity_id}"
+
+
+# Creator abstrato: define o factory method
+class ActivityFactory(ABC):
+    @abstractmethod
+    def create_activity(self, activity_id: str, base_url: str) -> Activity:
+        """Factory Method: cria uma Activity concreta."""
+        pass
+
+
+# Concrete Creators: cada fábrica sabe criar um tipo concreto de Activity
+class DialogActivityFactory(ActivityFactory):
+    def create_activity(self, activity_id: str, base_url: str) -> Activity:
+        return DialogActivity(activity_id, base_url)
+
+
+class QuizActivityFactory(ActivityFactory):
+    def create_activity(self, activity_id: str, base_url: str) -> Activity:
+        return QuizActivity(activity_id, base_url)
+
+
+class ScenarioActivityFactory(ActivityFactory):
+    def create_activity(self, activity_id: str, base_url: str) -> Activity:
+        return ScenarioActivity(activity_id, base_url)
+
+
+# Função auxiliar para escolher a fábrica adequada
+def get_factory(activity_type: str) -> ActivityFactory:
+    """
+    Seleciona a fábrica concreta com base no tipo de atividade.
+    Se o tipo não for reconhecido, usa DialogActivityFactory como padrão.
+    """
+    activity_type = (activity_type or "").lower()
+
+    if activity_type == "quiz":
+        return QuizActivityFactory()
+    elif activity_type == "scenario":
+        return ScenarioActivityFactory()
+    else:
+        # "dialog" é o tipo por omissão
+        return DialogActivityFactory()
+
+
+# ======================================================================
+# ENDPOINTS EXISTENTES
+# ======================================================================
 @app.route("/")
 def index():
     return """
     <h1>DailyTalk.pt - Activity Provider (Inven!RA)</h1>
-    <p>Serviço de teste - Semana 1 (APS).</p>
+    <p>Serviço de teste - Semana 4 - Factory Method (APS).</p>
     <ul>
       <li><strong>config_url</strong>: <code>/config</code></li>
       <li><strong>json_params_url</strong>: <code>/json-params</code></li>
-      <li><strong>user_url (deploy)</strong>: <code>/deploy?activityID=DTALK-DEMO-001</code></li>
+      <li><strong>user_url (deploy)</strong>: <code>/deploy?activityID=DTALK-DEMO-001&type=dialog</code></li>
       <li><strong>analytics_url</strong>: <code>/analytics</code> (POST JSON)</li>
       <li><strong>analytics_list_url</strong>: <code>/analytics-list</code></li>
     </ul>
@@ -62,11 +141,16 @@ def json_params():
 def deploy():
     activity_id = request.args.get("activityID", "DTALK-DEMO-001")
 
-    # Base do serviço atual (ex.: https://aps-68v8.onrender.com/)
+    # Tipo de atividade (dialog, quiz, scenario, ...)
+    activity_type = request.args.get("type", "dialog")
     base_url = request.url_root.rstrip("/")
 
-    # URL que a Inven!RA usará depois para POST "Provide activity"
-    launch_url = f"{base_url}/activity/{activity_id}"
+    # Seleciona a fábrica adequada e cria a atividade concreta
+    factory = get_factory(activity_type)
+    activity = factory.create_activity(activity_id, base_url)
+
+    # Usa o Product para obter o URL de lançamento
+    launch_url = activity.get_launch_url()
 
     # Especificação diz que é um URL, não JSON » devolvemos text/plain
     return Response(launch_url, mimetype="text/plain")
@@ -97,7 +181,7 @@ def analytics():
     payload = request.get_json(silent=True) or {}
     activity_id = payload.get("activityID", "DTALK-DEMO-001")
 
-    # Dados de EXEMPLO – estáticos, só para a Semana 1
+    # Dados de EXEMPLO – estáticos, para Semana 4 - Factory Method
     response = [
         {
             "inveniraStdID": 1001,
@@ -122,7 +206,7 @@ def analytics():
                 {
                     "name": "Activity heat map",
                     "type": "URL",
-                    "value": "https://dailytalk.pt/APS/heatmap/1001"
+                    "value": "http://dailytalk.pt/APS/heatmap/1001"
                 }
             ]
         },
@@ -149,7 +233,7 @@ def analytics():
                 {
                     "name": "Activity heat map",
                     "type": "URL",
-                    "value": "https://dailytalk.pt/APS/heatmap/1002"
+                    "value": "http://dailytalk.pt/APS/heatmap/1002"
                 }
             ]
         }

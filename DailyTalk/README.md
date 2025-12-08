@@ -38,4 +38,17 @@ O serviço está alojado na plataforma **Render.com**, conforme recomendado nos 
 **Python 3**  
 **Flask** (microframework para implementação dos Web Services)  
 **Gunicorn** (servidor WSGI utilizado no Render)  
-**Render.com** (Cloud para webservice)  
+**Render.com** (Cloud para webservice)
+
+
+## Implementação do Padrão de Criação (Factory Method) - (Semana 4)
+Nesta entrega foi implementado o padrão **Factory Method**, aplicado ao processo de criação das atividades pedagógicas no contexto do DailyTalk.
+
+O endpoint `/deploy` recebe o tipo de atividade a instanciar (`dialog`, `quiz` ou `scenario`), e delega essa responsabilidade ao componente:
+
+**ActivityFactory** – classe criadora (Creator)
+
+A fábrica instancia dinamicamente um dos produtos concretos:
+- `DialogActivity`  
+- `QuizActivity`  
+- `ScenarioActivity`  
