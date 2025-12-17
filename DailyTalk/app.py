@@ -79,13 +79,34 @@ def get_factory(activity_type: str) -> ActivityFactory:
 
 
 # ======================================================================
+# PADRÃO ESTRUTURAL: FACADE (GoF)
+# ======================================================================
+# Fornece uma interface unificada para um conjunto de interfaces no subsistema,
+# desacoplando a camada REST da lógica de criação de atividades.
+class ActivityProviderFacade:
+    """
+    Facade que fornece um ponto de entrada unificado para o Activity Provider,
+    coordenando serviços internos sem implementar lógica de negócio.
+    """
+
+    def deploy_activity(self, activity_id: str, activity_type: str, base_url: str) -> str:
+        # Seleciona a fábrica adequada
+        factory = get_factory(activity_type)
+
+        # Cria a atividade concreta
+        activity = factory.create_activity(activity_id, base_url)
+
+        # Obtém o URL de lançamento
+        return activity.get_launch_url()
+
+# ======================================================================
 # ENDPOINTS EXISTENTES
 # ======================================================================
 @app.route("/")
 def index():
     return """
     <h1>DailyTalk.pt - Activity Provider (Inven!RA)</h1>
-    <p>Serviço de teste - Semana 4 - Factory Method (APS).</p>
+    <p>Serviço de teste - Secção 5 - Facade (APS).</p>
     <ul>
       <li><strong>config_url</strong>: <code>/config</code></li>
       <li><strong>json_params_url</strong>: <code>/json-params</code></li>
@@ -140,20 +161,15 @@ def json_params():
 @app.route("/deploy")
 def deploy():
     activity_id = request.args.get("activityID", "DTALK-DEMO-001")
-
-    # Tipo de atividade (dialog, quiz, scenario, ...)
     activity_type = request.args.get("type", "dialog")
     base_url = request.url_root.rstrip("/")
 
-    # Seleciona a fábrica adequada e cria a atividade concreta
-    factory = get_factory(activity_type)
-    activity = factory.create_activity(activity_id, base_url)
+    # Usa o Facade
+    facade = ActivityProviderFacade()
+    launch_url = facade.deploy_activity(activity_id, activity_type, base_url)
 
-    # Usa o Product para obter o URL de lançamento
-    launch_url = activity.get_launch_url()
-
-    # Especificação diz que é um URL, não JSON » devolvemos text/plain
     return Response(launch_url, mimetype="text/plain")
+
 
 # --------------------------------------------------------------------------------------------------------------
 # Lista de analytics da atividade (analytics_list_url) - GET /analytics-list  → JSON com qualAnalytics e quantAnalytics

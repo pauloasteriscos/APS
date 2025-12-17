@@ -33,6 +33,35 @@ O serviço está alojado na plataforma **Render.com**, conforme recomendado nos 
 /analytics-list        | GET | Devolve a lista de analytics recolhidos pela atividade.<br>
 /analytics             | POST | Recebe o ID da atividade e devolve dados analíticos de exemplo.<br>
 
+
+## Padrões de Software Aplicados
+### Factory Method (GoF — Padrão de Criação)
+
+O padrão **Factory Method** é utilizado para encapsular a criação das diferentes atividades pedagógicas, permitindo que o sistema seja extensível sem depender de classes concretas.
+
+- `Activity` define o *Product* abstrato
+- `DialogActivity`, `QuizActivity` e `ScenarioActivity` são *Concrete Products*
+- `ActivityFactory` define o *Creator* abstrato
+- Cada tipo de atividade possui a sua fábrica concreta
+- A seleção da fábrica adequada é feita com base no tipo de atividade solicitado
+
+Este padrão permite adicionar novos tipos de atividade sem alterar o código cliente.
+
+
+### Facade (GoF — Padrão Estrutural)
+
+O padrão estrutural **Facade** foi introduzido através da classe `ActivityProviderFacade`.
+
+Esta classe fornece um **ponto de entrada unificado** para o subsistema interno do Activity Provider, coordenando o fluxo de criação da atividade e encapsulando o acesso ao Factory Method.
+
+O Facade:
+- reduz o acoplamento entre os endpoints REST e a lógica interna;
+- centraliza a orquestração do fluxo;
+- não implementa lógica de negócio, apenas delega responsabilidades.
+
+Desta forma, os endpoints REST permanecem simples e desacoplados da complexidade do subsistema.
+
+
 ## Tecnologia utilizada:
 
 **Python 3**  
