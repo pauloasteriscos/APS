@@ -1,21 +1,40 @@
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
 from flask import Flask, request, jsonify, Response
-from abc import ABC, abstractmethod  # Para o padrão Factory Method
+
+from strategies import (
+    EvaluationStrategy,
+    QuizEvaluationStrategy,
+    DialogEvaluationStrategy,
+    ScenarioEvaluationStrategy,
+    EvaluationResult,
+)
 
 app = Flask(__name__)
 
+# Registry simples (memória) para armazenar atividades "deployed"
+DEPLOYED_ACTIVITIES: dict[str, "Activity"] = {}
+
+
 # ======================================================================
-# PADRÃO DE CRIAÇÃO: FACTORY METHOD
+# PADRÃO DE CRIAÇÃO: FACTORY METHOD + STRATEGY
 # ======================================================================
 # Product abstrato: representa uma atividade DailyTalk
 class Activity(ABC):
-    def __init__(self, activity_id: str, base_url: str):
+    def __init__(self, activity_id: str, base_url: str, evaluator: EvaluationStrategy):
         self.activity_id = activity_id
         self.base_url = base_url.rstrip("/")
+        self.evaluator = evaluator  # Strategy
 
     @abstractmethod
     def get_launch_url(self) -> str:
         """Devolve o URL de lançamento desta atividade."""
-        pass
+        raise NotImplementedError
+
+    def evaluate_submission(self, submission: dict) -> EvaluationResult:
+        """Delegação para a Strategy: avalia e produz resultado."""
+        return self.evaluator.evaluate(submission=submission, activity_id=self.activity_id)
 
 
 # Concrete Products: diferentes tipos de atividade
@@ -42,23 +61,23 @@ class ActivityFactory(ABC):
     @abstractmethod
     def create_activity(self, activity_id: str, base_url: str) -> Activity:
         """Factory Method: cria uma Activity concreta."""
-        pass
+        raise NotImplementedError
 
 
-# Concrete Creators: cada fábrica sabe criar um tipo concreto de Activity
+# Concrete Creators: cada fábrica sabe criar um tipo concreto de Activity e injetar a Strategy
 class DialogActivityFactory(ActivityFactory):
     def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return DialogActivity(activity_id, base_url)
+        return DialogActivity(activity_id, base_url, evaluator=DialogEvaluationStrategy())
 
 
 class QuizActivityFactory(ActivityFactory):
     def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return QuizActivity(activity_id, base_url)
+        return QuizActivity(activity_id, base_url, evaluator=QuizEvaluationStrategy())
 
 
 class ScenarioActivityFactory(ActivityFactory):
     def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return ScenarioActivity(activity_id, base_url)
+        return ScenarioActivity(activity_id, base_url, evaluator=ScenarioEvaluationStrategy())
 
 
 # Função auxiliar para escolher a fábrica adequada
@@ -67,15 +86,15 @@ def get_factory(activity_type: str) -> ActivityFactory:
     Seleciona a fábrica concreta com base no tipo de atividade.
     Se o tipo não for reconhecido, usa DialogActivityFactory como padrão.
     """
-    activity_type = (activity_type or "").lower()
+    activity_type = (activity_type or "").lower().strip()
 
     if activity_type == "quiz":
         return QuizActivityFactory()
-    elif activity_type == "scenario":
+    if activity_type == "scenario":
         return ScenarioActivityFactory()
-    else:
-        # "dialog" é o tipo por omissão
-        return DialogActivityFactory()
+
+    # "dialog" é o tipo por omissão (tolerante)
+    return DialogActivityFactory()
 
 
 # ======================================================================
@@ -89,15 +108,14 @@ class ActivityProviderFacade:
     coordenando serviços internos sem implementar lógica de negócio.
     """
 
-    def deploy_activity(self, activity_id: str, activity_type: str, base_url: str) -> str:
+    def deploy_activity(self, activity_id: str, activity_type: str, base_url: str) -> Activity:
         # Seleciona a fábrica adequada
         factory = get_factory(activity_type)
 
-        # Cria a atividade concreta
+        # Cria a atividade concreta (já com Strategy injetada)
         activity = factory.create_activity(activity_id, base_url)
+        return activity
 
-        # Obtém o URL de lançamento
-        return activity.get_launch_url()
 
 # ======================================================================
 # ENDPOINTS EXISTENTES
@@ -106,11 +124,12 @@ class ActivityProviderFacade:
 def index():
     return """
     <h1>DailyTalk.pt - Activity Provider (Inven!RA)</h1>
-    <p>Serviço de teste - Secção 5 - Facade (APS).</p>
+    <p>Serviço de teste - Unidade 6 - Strategy method (APS)</p>
     <ul>
       <li><strong>config_url</strong>: <code>/config</code></li>
       <li><strong>json_params_url</strong>: <code>/json-params</code></li>
       <li><strong>user_url (deploy)</strong>: <code>/deploy?activityID=DTALK-DEMO-001&type=dialog</code></li>
+      <li><strong>submit</strong>: <code>/submit</code> (POST JSON)</li>
       <li><strong>analytics_url</strong>: <code>/analytics</code> (POST JSON)</li>
       <li><strong>analytics_list_url</strong>: <code>/analytics-list</code></li>
     </ul>
@@ -150,7 +169,7 @@ def json_params():
     params = [
         {"name": "scenario",   "type": "text/plain"},
         {"name": "language",   "type": "text/plain"},
-        {"name": "difficulty", "type": "text/plain"}
+        {"name": "difficulty", "type": "text/plain"},
     ]
     return jsonify(params)
 
@@ -166,27 +185,72 @@ def deploy():
 
     # Usa o Facade
     facade = ActivityProviderFacade()
-    launch_url = facade.deploy_activity(activity_id, activity_type, base_url)
+    activity = facade.deploy_activity(activity_id, activity_type, base_url)
 
+    # guarda no registry para permitir submissão/avaliação
+    DEPLOYED_ACTIVITIES[activity_id] = activity
+
+    launch_url = activity.get_launch_url()
     return Response(launch_url, mimetype="text/plain")
 
 
-# --------------------------------------------------------------------------------------------------------------
-# Lista de analytics da atividade (analytics_list_url) - GET /analytics-list  → JSON com qualAnalytics e quantAnalytics
-# --------------------------------------------------------------------------------------------------------------
+# ======================================================================
+# NOVO ENDPOINT: SUBMISSÃO / AVALIAÇÃO (Strategy em funcionamento real)
+# ======================================================================
+@app.route("/submit", methods=["POST"])
+def submit():
+    """
+    Payload esperado:
+    {
+      "activityID": "DTALK-DEMO-001",
+      "submission": { ... }    # varia conforme o tipo da atividade
+    }
+    """
+    payload = request.get_json(silent=True) or {}
+    activity_id = payload.get("activityID")
+    submission = payload.get("submission", {})
+
+    if not activity_id:
+        return jsonify({"error": "Missing activityID"}), 400
+
+    # Tolerância: submission pode vir None / tipo errado
+    if submission is None:
+        submission = {}
+    if not isinstance(submission, dict):
+        return jsonify({"error": "Invalid submission: must be an object/dict"}), 400
+
+    activity = DEPLOYED_ACTIVITIES.get(activity_id)
+    if not activity:
+        return jsonify({"error": f"Unknown activityID: {activity_id}. Deploy first."}), 404
+
+    # Avaliação via Strategy (já passa activity_id internamente)
+    result = activity.evaluate_submission(submission)
+
+    # * Implementar aqui: registar analytics/progresso/logs
+    return jsonify(
+        {
+            "activityID": activity_id,
+            "score": result.score,
+            "feedback": result.feedback,
+            "metrics": result.metrics,
+        }
+    ), 200
+
+
 @app.route("/analytics-list")
 def analytics_list():
     data = {
         "qualAnalytics": [
             {"name": "Student activity profile", "type": "text/plain"},
-            {"name": "Activity heat map",        "type": "URL"}
+            {"name": "Activity heat map",        "type": "URL"},
         ],
         "quantAnalytics": [
-            {"name": "Total interações",                 "type": "integer"},
-            {"name": "Tempo na atividade (segundos)",    "type": "integer"}
-        ]
+            {"name": "Total interações",              "type": "integer"},
+            {"name": "Tempo na atividade (segundos)", "type": "integer"},
+        ],
     }
     return jsonify(data)
+
 
 # --------------------------------------------------------------------------------------------------------------
 # Analytics de atividade (analytics_url) - POST /analytics  com  { "activityID": "..." }
@@ -195,7 +259,7 @@ def analytics_list():
 @app.route("/analytics", methods=["POST"])
 def analytics():
     payload = request.get_json(silent=True) or {}
-    activity_id = payload.get("activityID", "DTALK-DEMO-001")
+    _activity_id = payload.get("activityID", "DTALK-DEMO-001")
 
     # Dados de EXEMPLO – estáticos, para Semana 4 - Factory Method
     response = [
