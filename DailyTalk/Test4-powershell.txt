@@ -1,0 +1,17 @@
+Deploy no navegador:
+http://127.0.0.1:5000/deploy?activityID=TEST-SCN-001&type=scenario
+
+
+SUBMIT:
+
+
+$body = @{
+  activityID = "TEST-SCN-001"
+  submission = @{
+    decisions_ok = 3
+    penalties = 1
+    steps = 7
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:5000/submit" -ContentType "application/json" -Body $body

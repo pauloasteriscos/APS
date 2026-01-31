@@ -1,0 +1,6 @@
+pip install colorlog
+
+cd C:\GIT\APS\DailyTalk
+pip install -r requirements.txt
+python app.py
+

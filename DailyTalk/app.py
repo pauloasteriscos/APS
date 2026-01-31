@@ -1,124 +1,20 @@
 from __future__ import annotations
+from log_config import setup_logging
+setup_logging()
 
-from abc import ABC, abstractmethod
 from flask import Flask, request, jsonify, Response
 
-from strategies import (
-    EvaluationStrategy,
-    QuizEvaluationStrategy,
-    DialogEvaluationStrategy,
-    ScenarioEvaluationStrategy,
-    EvaluationResult,
-)
+from services.activity_service import ActivityService
+from services.submission_service import SubmissionService
 
 app = Flask(__name__)
 
-# Registry simples (memória) para armazenar atividades "deployed"
-DEPLOYED_ACTIVITIES: dict[str, "Activity"] = {}
-
-
-# ======================================================================
-# PADRÃO DE CRIAÇÃO: FACTORY METHOD + STRATEGY
-# ======================================================================
-# Product abstrato: representa uma atividade DailyTalk
-class Activity(ABC):
-    def __init__(self, activity_id: str, base_url: str, evaluator: EvaluationStrategy):
-        self.activity_id = activity_id
-        self.base_url = base_url.rstrip("/")
-        self.evaluator = evaluator  # Strategy
-
-    @abstractmethod
-    def get_launch_url(self) -> str:
-        """Devolve o URL de lançamento desta atividade."""
-        raise NotImplementedError
-
-    def evaluate_submission(self, submission: dict) -> EvaluationResult:
-        """Delegação para a Strategy: avalia e produz resultado."""
-        return self.evaluator.evaluate(submission=submission, activity_id=self.activity_id)
-
-
-# Concrete Products: diferentes tipos de atividade
-class DialogActivity(Activity):
-    def get_launch_url(self) -> str:
-        # Exemplo de URL para diálogo guiado
-        return f"{self.base_url}/activity/dialog/{self.activity_id}"
-
-
-class QuizActivity(Activity):
-    def get_launch_url(self) -> str:
-        # Exemplo de URL para atividade de escolhas múltiplas
-        return f"{self.base_url}/activity/quiz/{self.activity_id}"
-
-
-class ScenarioActivity(Activity):
-    def get_launch_url(self) -> str:
-        # Exemplo de URL para cenário Erasmus+ genérico
-        return f"{self.base_url}/activity/scenario/{self.activity_id}"
-
-
-# Creator abstrato: define o factory method
-class ActivityFactory(ABC):
-    @abstractmethod
-    def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        """Factory Method: cria uma Activity concreta."""
-        raise NotImplementedError
-
-
-# Concrete Creators: cada fábrica sabe criar um tipo concreto de Activity e injetar a Strategy
-class DialogActivityFactory(ActivityFactory):
-    def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return DialogActivity(activity_id, base_url, evaluator=DialogEvaluationStrategy())
-
-
-class QuizActivityFactory(ActivityFactory):
-    def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return QuizActivity(activity_id, base_url, evaluator=QuizEvaluationStrategy())
-
-
-class ScenarioActivityFactory(ActivityFactory):
-    def create_activity(self, activity_id: str, base_url: str) -> Activity:
-        return ScenarioActivity(activity_id, base_url, evaluator=ScenarioEvaluationStrategy())
-
-
-# Função auxiliar para escolher a fábrica adequada
-def get_factory(activity_type: str) -> ActivityFactory:
-    """
-    Seleciona a fábrica concreta com base no tipo de atividade.
-    Se o tipo não for reconhecido, usa DialogActivityFactory como padrão.
-    """
-    activity_type = (activity_type or "").lower().strip()
-
-    if activity_type == "quiz":
-        return QuizActivityFactory()
-    if activity_type == "scenario":
-        return ScenarioActivityFactory()
-
-    # "dialog" é o tipo por omissão (tolerante)
-    return DialogActivityFactory()
-
+# Serviços (Application Layer)
+activity_service = ActivityService()
+submission_service = SubmissionService(activity_service)
 
 # ======================================================================
-# PADRÃO ESTRUTURAL: FACADE (GoF)
-# ======================================================================
-# Fornece uma interface unificada para um conjunto de interfaces no subsistema,
-# desacoplando a camada REST da lógica de criação de atividades.
-class ActivityProviderFacade:
-    """
-    Facade que fornece um ponto de entrada unificado para o Activity Provider,
-    coordenando serviços internos sem implementar lógica de negócio.
-    """
-
-    def deploy_activity(self, activity_id: str, activity_type: str, base_url: str) -> Activity:
-        # Seleciona a fábrica adequada
-        factory = get_factory(activity_type)
-
-        # Cria a atividade concreta (já com Strategy injetada)
-        activity = factory.create_activity(activity_id, base_url)
-        return activity
-
-
-# ======================================================================
-# ENDPOINTS EXISTENTES
+# ENDPOINTS EXISTENTES (mantidos)
 # ======================================================================
 @app.route("/")
 def index():
@@ -136,12 +32,10 @@ def index():
     """, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 # -------------------------------------------------------
-# Página de configuração da atividade (config_url) -  GET /config  » HTML embutível
+# Página de configuração da atividade (config_url) - GET /config » HTML embutível
 # -------------------------------------------------------
-
 @app.route("/config")
 def config_page():
-    # HTML para leitura na Inven!RA
     html = """
     <div id="dailytalk-config">
       <h2>Configuração da atividade DailyTalk.pt</h2>
@@ -160,9 +54,8 @@ def config_page():
     """
     return Response(html, mimetype="text/html")
 
-
 # --------------------------------------------------------------------------------------------------------------
-# Lista de parâmetros da página de configuração - GET /json-params  » JSON [ { "name", "type" }, ... ]
+# Lista de parâmetros da página de configuração - GET /json-params » JSON [ { "name", "type" }, ... ]
 # --------------------------------------------------------------------------------------------------------------
 @app.route("/json-params")
 def json_params():
@@ -173,9 +66,8 @@ def json_params():
     ]
     return jsonify(params)
 
-
 # --------------------------------------------------------------------------------------------------------------
-# Deploy de atividade (user_url) » GET /deploy?activityID=... Resposta: URL (texto simples) para aceder à atividade
+# Deploy de atividade (user_url) – GET /deploy?activityID=... Resposta: URL (texto simples) para aceder à atividade
 # --------------------------------------------------------------------------------------------------------------
 @app.route("/deploy")
 def deploy():
@@ -183,19 +75,15 @@ def deploy():
     activity_type = request.args.get("type", "dialog")
     base_url = request.url_root.rstrip("/")
 
-    # Usa o Facade
-    facade = ActivityProviderFacade()
-    activity = facade.deploy_activity(activity_id, activity_type, base_url)
-
-    # guarda no registry para permitir submissão/avaliação
-    DEPLOYED_ACTIVITIES[activity_id] = activity
-
-    launch_url = activity.get_launch_url()
+    launch_url = activity_service.deploy(
+        activity_id=activity_id,
+        activity_type=activity_type,
+        base_url=base_url
+    )
     return Response(launch_url, mimetype="text/plain")
 
-
 # ======================================================================
-# NOVO ENDPOINT: SUBMISSÃO / AVALIAÇÃO (Strategy em funcionamento real)
+# SUBMISSÃO / AVALIAÇÃO (Strategy em funcionamento real)
 # ======================================================================
 @app.route("/submit", methods=["POST"])
 def submit():
@@ -207,35 +95,9 @@ def submit():
     }
     """
     payload = request.get_json(silent=True) or {}
-    activity_id = payload.get("activityID")
-    submission = payload.get("submission", {})
 
-    if not activity_id:
-        return jsonify({"error": "Missing activityID"}), 400
-
-    # Tolerância: submission pode vir None / tipo errado
-    if submission is None:
-        submission = {}
-    if not isinstance(submission, dict):
-        return jsonify({"error": "Invalid submission: must be an object/dict"}), 400
-
-    activity = DEPLOYED_ACTIVITIES.get(activity_id)
-    if not activity:
-        return jsonify({"error": f"Unknown activityID: {activity_id}. Deploy first."}), 404
-
-    # Avaliação via Strategy (já passa activity_id internamente)
-    result = activity.evaluate_submission(submission)
-
-    # * Implementar aqui: registar analytics/progresso/logs
-    return jsonify(
-        {
-            "activityID": activity_id,
-            "score": result.score,
-            "feedback": result.feedback,
-            "metrics": result.metrics,
-        }
-    ), 200
-
+    result, status_code = submission_service.submit(payload)
+    return jsonify(result), status_code
 
 @app.route("/analytics-list")
 def analytics_list():
@@ -251,10 +113,9 @@ def analytics_list():
     }
     return jsonify(data)
 
-
 # --------------------------------------------------------------------------------------------------------------
-# Analytics de atividade (analytics_url) - POST /analytics  com  { "activityID": "..." }
-#    » devolve lista de alunos com quantAnalytics e qualAnalytics
+# Analytics de atividade (analytics_url) – POST /analytics com { "activityID": "..." }
+#    » devolve lista de alunos com quantAnalytics e qualAnalytics (exemplo estático)
 # --------------------------------------------------------------------------------------------------------------
 @app.route("/analytics", methods=["POST"])
 def analytics():
@@ -266,69 +127,46 @@ def analytics():
         {
             "inveniraStdID": 1001,
             "quantAnalytics": [
-                {
-                    "name": "Total interações",
-                    "type": "integer",
-                    "value": 12
-                },
-                {
-                    "name": "Tempo na atividade (segundos)",
-                    "type": "integer",
-                    "value": 210
-                }
+                {"name": "Total interações", "type": "integer", "value": 12},
+                {"name": "Tempo na atividade (segundos)", "type": "integer", "value": 210},
             ],
             "qualAnalytics": [
                 {
                     "name": "Student activity profile",
                     "type": "text/plain",
-                    "value": "Participou em todas as etapas do diálogo."
+                    "value": "Participou em todas as etapas do diálogo.",
                 },
                 {
                     "name": "Activity heat map",
                     "type": "URL",
-                    "value": "http://dailytalk.pt/APS/heatmap/1001"
-                }
-            ]
+                    "value": "http://dailytalk.pt/APS/heatmap/1001",
+                },
+            ],
         },
         {
             "inveniraStdID": 1002,
             "quantAnalytics": [
-                {
-                    "name": "Total interações",
-                    "type": "integer",
-                    "value": 5
-                },
-                {
-                    "name": "Tempo na atividade (segundos)",
-                    "type": "integer",
-                    "value": 95
-                }
+                {"name": "Total interações", "type": "integer", "value": 5},
+                {"name": "Tempo na atividade (segundos)", "type": "integer", "value": 95},
             ],
             "qualAnalytics": [
                 {
                     "name": "Student activity profile",
                     "type": "text/plain",
-                    "value": "Abandonou a atividade a meio do diálogo."
+                    "value": "Abandonou a atividade a meio do diálogo.",
                 },
                 {
                     "name": "Activity heat map",
                     "type": "URL",
-                    "value": "http://dailytalk.pt/APS/heatmap/1002"
-                }
-            ]
-        }
+                    "value": "http://dailytalk.pt/APS/heatmap/1002",
+                },
+            ],
+        },
     ]
-
     return jsonify(response)
-
 
 # -------------------------------------------------------
 # Entrada padrão para o gunicorn (Render usa: gunicorn app:app)
 # -------------------------------------------------------
 if __name__ == "__main__":
-    # Para testes locais: 
-    #   python -m venv venv
-    #   pip install -r requirements.txt
-    #   python app.py
-    #     Running on http://127.0.0.1:5000
     app.run(host="0.0.0.0", port=5000, debug=True)
